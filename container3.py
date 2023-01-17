@@ -420,13 +420,23 @@ class FraggerResult(Result):
     def read_result_multiple(self):
         """Loads results for single file from multiple-file or single-file psm.tsv
         #### TODO more robust method to separate file names. maybe by spectrum?""" 
+        def check_spectrum_file_match(specstring,filename):
+            specstring = specstring.split('.')
+            if filename == specstring[0]:
+                print(filename)
+                print(specstring)
+                returnval= True
+            else:
+                returnval= False
+            return returnval
         result_dataframe = pd.read_csv(self.resultpath, sep = "\t")
         fragger_file_name = "interact-"+".".join(self.datapath.split("\\")[-1].split(".")[:-1])+ ".pep.xml"    #transform filename to spectrum name used in psm.tsv
         #result_dataframe = result_dataframe[result_dataframe["Spectrum File"].str.endswith(fragger_file_name)]
         #print(result_dataframe.shape[0])
         #if result_dataframe.shape[0] <=1:
         filename = self.datapath.split("\\")[-1].rstrip(".mzML")
-        result_dataframe = result_dataframe[result_dataframe["Spectrum"].str.startswith(filename)]
+        result_dataframe['fileset'] = result_dataframe["Spectrum"].apply(check_spectrum_file_match, args = [filename])
+        result_dataframe = result_dataframe[result_dataframe['fileset'] == True]
         
         if result_dataframe.shape[0] <=1:    
             print("No data for file " + self.datapath)
