@@ -12,40 +12,30 @@ import copy
 import itertools as it
 import re
 
-
 """
-Created on Thu Jun 30 16:52:11 2022
-
-@author: APirog
-
-
-resultpath = r"D:\data\peptidomics_psmfile_summarization\06_2022_fractionations\fractions_60min\fragger_7-50\mfagger_FA"
-rawfilepath = r"D:\data\peptidomics_psmfile_summarization\06_2022_fractionations\fractions_60min\mzml"
-dataname = "FA/ACN HLB Fractionation"
-samples = {"10":"FA_10_test.mzml","20":"FA_20_test.mzml","30":"FA_30_test.mzml","40":"FA_40_test.mzml","60":"FA_60_test.mzml","90":"FA_90_test.mzml"}
-mzmltoomit = "badmzmls"
-filtering = True
-namelist = "namespace"
-moddict = {"[147]":"(UniMod:35)","n[43]":"(UniMod:1)"}
+TODO
+- do not reload rawdatatable if not needed
+- why modification_position always present
+- develop filre result addition and subtraction
 """
 
 
-"""
-contain data about identifications present in raw files.
-sourcefile is a mzml file
-resultcontainer is a dict of results (named by user)
-
-"""
 class IdentifiedData:
+    """
+    contain data about identifications present in raw files.
+    sourcefile  - path to source mzml file. Data itself are not stored, because of size
+    resultcontainer -  is a dict of results (named by user) in a form {"Name": Result object}. used to
+                       access individual Result objects."""
     def __init__(self):
         self.sourcefile = None
         self.resultcontainer = {}
-        
-    """
-    Add result, check if the result is for the same file (critical!)
-    
-    """    
+
     def add(self,result,resultname):
+        """Add result, check if the result is for the same file (critical!)
+           Arguments:
+               result - container result of known type. Result object
+               resultname - name to further identify the result. string
+        """ 
         if self.sourcefile == None:
             self.sourcefile = result.datapath
             self.resultcontainer[resultname] = result
@@ -59,13 +49,13 @@ class IdentifiedData:
             self.sourcefile = result.datapath
             self.resultcontainer[resultname] = result
             
-    """
-    extracts identified spectra for all results in resultnames list
-    writes mzml file with all MS1 spectra and identified MS2 spectra
-    critically requires correct spectrum index     
-    
-    """
     def write_identified(self,resultnames):
+        """extracts identified spectra for all results in resultnames list
+        writes mzml file with all MS1 spectra and identified MS2 spectra
+        critically requires correct spectrum index. Writes a new mzML file with
+        name suffix _identified.mzML. Returns file name.
+        Arguments:
+        resultnames - names of results for which to write identified spectra. list"""
         all_identified_scans = []
         for result in resultnames:
             result = self.resultcontainer[result]
@@ -91,17 +81,18 @@ class IdentifiedData:
                 else:
                     pass
         data.setSpectra(identifiedspectra)
-        mzml.MzMLFile().store(".".join(self.sourcefile.split(".")[:-1])+"_identified.mzML", data)
+        outfilename = ".".join(self.sourcefile.split(".")[:-1])+"_identified.mzML"
+        mzml.MzMLFile().store(outfilename, data)
                     
-        return 0
+        return outfilename
     
-    """
-    extracts not identified spectra for all results in resultnames list
-    writes mzml file with all MS1 spectra and identified MS2 spectra
-    critically requires correct spectrum index     
-    
-    """
     def write_unidentified(self,resultnames):
+        """extracts not identified spectra for all results in resultnames list
+        writes mzml file with all MS1 spectra and identified MS2 spectra
+        critically requires correct spectrum index. Writes a new mzML file with
+        name suffix _not_identified.mzML. Returns file name.
+        Arguments:
+        resultnames - result names which will be used to remove spectra from all spectra. list"""
         all_identified_scans = []
         for result in resultnames:
             result = self.resultcontainer[result]
@@ -128,16 +119,27 @@ class IdentifiedData:
                     pass
         print(len(unidentifiedspectra))
         data.setSpectra(unidentifiedspectra)
-        mzml.MzMLFile().store(".".join(self.sourcefile.split(".")[:-1])+"_not_identified.mzML", data)
+        outfilename = ".".join(self.sourcefile.split(".")[:-1])+"_not_identified.mzML"
+        mzml.MzMLFile().store(outfilename, data)
                     
-        return 0
-    
-    """
-    slow and unclean
-    add kind of conflict - mod location,sequence,mass
-    """
+        return outfilename
     
     def check_type(self,dictionary,unmodified,modified,accuracy):
+        """return kind of conflict between identifications of the same spectrum. Check conflict type for all pairs in a set,
+            and mark kinds of conflicts that are present. Generally used for write_spectra_result_table, but can be used for anything
+            provided proper argument creation.
+            Kinds of conflicts:
+            mass - calculated mass difference more than accuracy
+            sequence - different unmodified sequence. I and L treted as identical
+            isoleucine - sequence identical except leucine/isoleucine
+            modification_num - number of modifications is different
+            modification_pos - modifications are the same, but positions differ
+            Arguments:
+            dictionary - line in a form of dictionary {"column name":"column value"}. Dictionary
+            unmodified - dictionary keys for unmodified sequences. list
+            modified - dictionary keys modified sequences. list
+            accuracy - maximum allowed difference in ppm. Roughly 2x mass accuracy setting used for searches. float
+        """
         mass = False
         sequence = False
         isoleucine = False
@@ -158,19 +160,10 @@ class IdentifiedData:
             if not check:
                 isoleucine = True
                 sequence = False
-        #here probably need to use re
-        #here probably need to use re
         for item in pairs_mod:
-            
             mass_a = mzml.AASequence.fromString(item[0]).getMonoWeight()
             mass_b = mzml.AASequence.fromString(item[1]).getMonoWeight()
             error = abs(((mass_a - mass_b)/mass_a)*1000000)
-            if item[0] != item[1]:
-                print(error)
-                print(mass_a)
-                print(mass_b)
-                print(item[0])
-                print(item[1])
             if error > accuracy:
                 mass = True
         if not sequence:
@@ -179,13 +172,6 @@ class IdentifiedData:
             modification_num = any([True for x in pairs_mod_extracted if x[0] != x[1]])
         if not (sequence or modification_num):
             modification_pos = any([True for x in pairs_mod if x[0] != x[1]])
-        if modification_pos:
-            for item in pairs_mod:
-                print(item)
-        if [mass,sequence,isoleucine,modification_num,modification_pos] == [False, False, True, False,False] :
-            for item in pairs_mod:
-                print(item)
-            print("dupa")
         strings = ["Mass","Sequence","Isoleucine/Leucine","Modification_Number","Modification_Position"]
         values = [mass,sequence,isoleucine,modification_num,modification_pos]
         i =  0
@@ -201,9 +187,12 @@ class IdentifiedData:
         
         return returnval
         
-        
-        
     def write_spectra_result_table(self,resultnames,check_type=True):
+        """Attempt to write a summary table of a mzml file and particular set of results
+        For every spectrum index, peptide identifications are reported as well as kind of conflicts between them.
+        Arguments:
+        resultnames - set of results to use. list
+        check_type - whether to check co0nflict type. bool, default True"""
         all_identified_scans = []
         for result in resultnames:
             result = self.resultcontainer[result]
@@ -227,7 +216,10 @@ class IdentifiedData:
             pepseqs = []
             modpepseqs = []
             for result in resultnames:
-                if scan in self.resultcontainer[result].datatable["SpectrumIndex"].unique():
+                flag = True
+                if self.resultcontainer[result].datatable is None:
+                    flag = False
+                if flag and scan in self.resultcontainer[result].datatable["SpectrumIndex"].unique():
                     dataline = self.resultcontainer[result].datatable[self.resultcontainer[result].datatable["SpectrumIndex"]==scan]
                     line["PeptideSequence"+"_"+result] = dataline["PeptideSequence"].iloc[0]
                     pepseqs.append("PeptideSequence"+"_"+result)
@@ -235,7 +227,7 @@ class IdentifiedData:
                     modpepseqs.append("ModifiedPeptideSequence"+"_"+result)
                     seqs.append(dataline["ModifiedPeptideSequence"].iloc[0])
                     if check_type:
-                        line["ConflictTypes"] = self.check_type(line,pepseqs,modpepseqs,accuracy = 15)
+                        line["ConflictTypes"] = self.check_type(line,pepseqs,modpepseqs,accuracy = 200000)
                 else:
                     line["PeptideSequence"+"_"+result] = "No_ID"
                     line["ModifiedPeptideSequence"+"_"+result] = "No_ID"
@@ -251,24 +243,11 @@ class IdentifiedData:
                 
                     
             
-                                    
-        
-        
-
-"""      
-Unified (as far as possible) identified result. 
--moddict dictionary to unify modification files
--mzmlfile raw source file path
--tsvoutput tsv output of search engine file path
--name result name chosen by user
--result_dataframe - actual contents of results of search engine
--datatable results in format as unified as possible
--rawdatatable unified table of raw data useful for plotting
-
-"""  
-        
 class Result:
+    """Unified (as far as possible) identified result. 
+    This class contain methods that can be applied to any Result type"""
     def __init__(self,moddict,mzmlfile,tsvoutput,name):
+        """ highly probably unnecesary here"""
         self.moddict = moddict                                         
         self.datapath = mzmlfile.replace("/","\\")                     
         self.resultpath = tsvoutput                                    
@@ -277,15 +256,15 @@ class Result:
         self.datatable = None    
         self.rawdatatable = None                                      
 
-    """
-    draws simple histogram 
-    arguments
-    what - column to use
-    limits - dictionary of form {column:(minimum,maximum)} for all columns to be limited
-    unique_by - drop duplicated valuse by column, e.g to obtain unique peptides or psms
-    #TODO add possibility to use raw_datatable
-    """
     def make_histogram_results(self,what = "PPMerror",limits = None,unique_by= None):
+        """draws simple histogram of whatever parameter.
+        Arguments
+        what - column with data to use. string
+        limits - dictionary of form {column:(minimum,maximum)} for all columns to be limited.
+                As is, it can be used to select particular part of data, not only to limit histogram 
+                range. dict
+        unique_by - drop duplicated valuse by column, e.g to obtain unique peptides or psms. string
+        #TODO add possibility to use raw_datatable"""
         if unique_by:
             newdatatable = self.datatable.drop_duplicates(subset = unique_by)
         else:
@@ -298,14 +277,15 @@ class Result:
         
         return 0
     
-    """
-    arguments
-    what - list of columns to use (2 element)
-    limits - dictionary of form {column:(minimum,maximum)} for all columns to be limited
-    unique_by - drop duplicated valuse by column, e.g to obtain unique peptides or psms
-    #TODO add possibility to use raw_datatable
-    """
-    def make_scatter_results(self,what = ["PPMerror","RTinSeconds"],limits = None,unique_by= None):
+    def make_scatter_results(self,what = ["PPMerror","RTinSeconds"],limits = None,unique_by= None):  
+        """Draw simple scatterplot of two columns with numeric data
+        arguments
+        what - list of columns to use (2 element). 2 element list or tuple of strings
+        limits - dictionary of form {column:(minimum,maximum)} for all columns to be limited.  
+                As is, it can be used to select particular part of data, not only to limit histogram 
+                range. dict
+        unique_by - drop duplicated valuse by column, e.g to obtain unique peptides or psms. string
+        #TODO add possibility to use raw_datatable"""
         if unique_by:
             newdatatable = self.datatable.drop_duplicates(subset = unique_by)
         else:
@@ -318,14 +298,21 @@ class Result:
         
         return 0
     
-    """
-    Reads some data from mzml file into tablular format.
-    (RT,MZ,charge of all MS2 spectra, as well as identification status)
-    Save the contents in python pickle (primitive)
-    This function read raw file.
-    """
     def load_mzmldata_fromfile(self):
-        identifiedscans = self.datatable["SpectrumIndex"].unique()
+        """Reads some data from mzml file into tablular format.
+            -RT
+            -M/Z
+            -charge
+            -spectrum index
+            -mass (with hydrogen atoms!)
+            -identfied status for spectrum
+        Saves the contents in python pickle (primitive)
+        This function read raw file. Normally, pickled dataframe will be used for faster execution time
+        Returns dataframe and sets self.rawdatatable  as this dataframe"""
+        if self.datatable is not None:
+            identifiedscans = self.datatable["SpectrumIndex"].unique()
+        else:
+            identifiedscans = []                                         #in case 0 ids for file
         data = mzml.MSExperiment()
         mzml.MzMLFile().load(self.datapath, data)
         dataframe = []
@@ -349,61 +336,56 @@ class Result:
         filename = self.datapath.split("\\")[-1]
         with open(self.name+"_"+filename+"_data_raw_table.pickle","wb") as outpickle:
             pickle.dump(self.rawdatatable,outpickle)
+        return self.rawdatatable
     
-    """
-    Checks if there is raw_datatable present in pickled form. If yes, loads it.
-    If no, run load_mzml_fromfile and read actual raw file
-    
-    """
     def load_mzmldata(self):
+        """Checks if there is rawdatatable is present in pickled form. If yes, loads it.
+        If not, run load_mzml_fromfile and read actual raw file."""
         filename = self.datapath.split("\\")[-1]
         if path.exists(self.name+"_"+filename+"_data_raw_table.pickle"):
             self.rawdatatable = pickle.load(open(self.name+"_"+filename+"_data_raw_table.pickle","rb"))
+            return self.rawdatatable
         else:
             self.load_mzmldata_fromfile()
             
     def make_histogram_spectralfile(self,what = "Charge",limits = None):
-        
+        """TODO"""
         return 0
     
-    
-    """
-    simply get a list of peptide sequences, do not differentiate differently modified sequences
-    
-    """
     def retrieve_sequences(self):
+        """simply get a list of peptide sequences, do not differentiate differently modified sequences"""
         sequences = self.datatable["PeptideSequence"].unique()
         sequences = list(sequences)
         
         return sequences
     
-    """
-    simply get a list of all sequences including modifications
-    
-    """
     def retrieve_sequences_modified(self):
+        """simply get a list of all sequences including modifications"""
         sequences_m = self.datatable["ModifiedPeptideSequence"].unique()
         sequences_m = list(sequences_m)
         
         return sequences_m
     
     
-
-        
-"""
----------------loader for MSFragger psm.tsv data file-------------------------------------
-
-Unified Read Fragpipe psm.tsv as Fragpipe result. Attempt to unify data as far as possible
--moddict dictionary to unify modification files
--mzmlfile raw source file path
--tsvoutput tsv output of search engine file path
--name result name chosen by user
--result_dataframe - actual contents of results of search engine
--datatable results in format as unified as possible
-
-"""  
 class FraggerResult(Result):
+    """---------------loader for MSFragger psm.tsv data file-------------------------------------
+
+    Unified reader for Fragpipe psm.tsv as Fragpipe result. Attempt to unify data as far as possible.
+    class attributes
+    -moddict dictionary to unify modification names
+    -datapath raw source file path
+    -resultpath tsv output of search engine file path
+    -name result name chosen by user
+    -result_dataframe - actual contents of results of search engine
+    -datatable results in format as unified as possible
+    -rawdatatable - summary table for mzml file"""
+    
     def __init__(self,moddict,mzmlfile,tsvoutput,name):
+        """Arguments to create FraggerResult instance
+            moddict - dictionary to unify modification names
+            mzmlfile -  raw source file path
+            tsvoutput - tsv output of search engine file path
+            name - result name used to identify it. string"""
         self.moddict = moddict
         self.datapath = mzmlfile.replace("/","\\")                     #unify path slashes
         self.resultpath = tsvoutput.replace("/","\\") 
@@ -411,6 +393,7 @@ class FraggerResult(Result):
         self.result_dataframe = None
         self.datatable = None
         self.rawdatatable = None
+        self.result_for_file_exists = True  # flag false to not attempt to transform empty results
 
         if not path.exists(self.datapath):
             print("No raw data file!")
@@ -422,48 +405,53 @@ class FraggerResult(Result):
             print(self.name)
         if path.exists(self.datapath) and path.exists(self.resultpath):
             self.read_result_multiple()
+        if self.result_for_file_exists:
             self.transform_tableresult()
             
-    """
-    loads psm.tsv file that contain data only for single mzml file
-    ####TODO check if this is really single-file psm.tsv and contain data for right file
-    
-    """        
     def read_result_single(self):
+        """Loads psm.tsv file that contain data only for single mzml file
+        ####TODO check if this is really single-file psm.tsv and contain data for right file. 
+        Probably useless"""     
         result_dataframe = pd.read_csv(self.resultpath, sep = "\t")
         self.result_dataframe = result_dataframe
         
-    """
-    Loads results for single file from multiple-file psm.tsv
-    #### TODO more robust method to separate file names. maybe by spectrum?
-    """     
+        return self.result_dataframe
+            
     def read_result_multiple(self):
+        """Loads results for single file from multiple-file or single-file psm.tsv
+        #### TODO more robust method to separate file names. maybe by spectrum?""" 
         result_dataframe = pd.read_csv(self.resultpath, sep = "\t")
         fragger_file_name = "interact-"+".".join(self.datapath.split("\\")[-1].split(".")[:-1])+ ".pep.xml"    #transform filename to spectrum name used in psm.tsv
-        result_dataframe = result_dataframe[result_dataframe["Spectrum File"].str.endswith(fragger_file_name)]
-        if result_dataframe.shape[0] <=1:
-           print("No data for file " + self.datapath)
-           print("in")
-           print(self.name)
-        self.result_dataframe = result_dataframe
-    
-    """
-    Transform psm.tsv into more unified form, add columns, original columns remain in place or 
-    are renamed without content change
-    rename "Retention":"RTinSeconds"
-    rename "Peptide":"PeptideSequence"
-    rename "Peptide Length":"PeptideLength"
-    rename "Calibrated Observed Mass":"MeasuredMassCalibrated"
-    rename "Observed Mass":"MeasuredMass"
-    add "ModifiedPeptideSequence" containing modified sequence in unified format
-    add "SpectrumIndex" containing spectrum index as unique spectrum identifier
-    add "PPMerror" containing PPM error of m/z before calibration
-    add "PPMerrorAfterRecal" containing PPM error of m/z after calibration
-    ####TODO add empty feature column, to use for feature based id checking and comparison
-    
-    """    
-    def transform_tableresult(self):
+        #result_dataframe = result_dataframe[result_dataframe["Spectrum File"].str.endswith(fragger_file_name)]
+        #print(result_dataframe.shape[0])
+        #if result_dataframe.shape[0] <=1:
+        filename = self.datapath.split("\\")[-1].rstrip(".mzML")
+        result_dataframe = result_dataframe[result_dataframe["Spectrum"].str.startswith(filename)]
         
+        if result_dataframe.shape[0] <=1:    
+            print("No data for file " + self.datapath)
+            print("in")
+            print(self.name)
+            self.result_for_file_exists = False
+        print(filename)
+        print(result_dataframe.shape[0])
+        self.result_dataframe = result_dataframe
+        
+        return self.result_dataframe
+    
+    def transform_tableresult(self):
+        """Transform psm.tsv into more unified form, add columns, original columns remain in place or 
+        are renamed without content change
+        rename "Retention":"RTinSeconds"
+        rename "Peptide":"PeptideSequence"
+        rename "Peptide Length":"PeptideLength"
+        rename "Calibrated Observed Mass":"MeasuredMassCalibrated"
+        rename "Observed Mass":"MeasuredMass"
+        add "ModifiedPeptideSequence" containing modified sequence in unified format
+        add "SpectrumIndex" containing spectrum index as unique spectrum identifier
+        add "PPMerror" containing PPM error of m/z before calibration
+        add "PPMerrorAfterRecal" containing PPM error of m/z after calibration
+        ####TODO add empty feature column, to use for feature based id checking and comparison""" 
         def makemodifiedsequence(serieslike,modifications):
             if not type(serieslike["Modified Peptide"]) == str:
                 returnval = serieslike["PeptideSequence"]
@@ -498,27 +486,25 @@ class FraggerResult(Result):
         return 0
 
 
-"""
----------------loader for MSPathfinderT/Promex result psm.tsv data file-------------------------------------
-requires for now
--tsv file with Target-Decoy analysis
--mzml file
--ms1ft file located in the same folder as mzml file
-Will check for existence of all of them.
-
-Contain:
-
--moddict dictionary to unify modification files
--mzmlfile raw source file path
--tsvoutput tsv output of search engine file path
--name result name chosen by user
--fdr to cutoff Target-Decoy analysed file. Usually should be 0.005 for reasonable results
--result_dataframe - actual contents of results of search engine
--datatable results in format as unified as possible
-
-"""
 class PathFinderResult(Result):
+    """---------------loader for MSPathfinderT/Promex result psm.tsv data file-------------------------------------
+    Unified reader for Informed Proteomics package output files. Attempt to unify data as far as possible.
+    class attributes:
+    -moddict dictionary to unify modification files
+    -datapath raw source file path.
+    
+    
+
+"""
+
     def __init__(self,moddict,mzmlfile,tsvoutput,name,fdr):
+        """"Arguments:
+            -moddict dictionary to unify modification files
+            -mzmlfile raw source file path. .ms1ft file(Promex output) is also used, must have the same name except extension, 
+             and be located in the same folder.
+            -tsvoutput tsv output of search engine file path. Requires Target-Decoy analysis output!
+            -name result name chosen by user
+            -fdr to cutoff Target-Decoy analysed file. Usually should be 0.005 for reasonable results"""
         self.moddict = moddict
         self.datapath = mzmlfile.replace("/","\\")                     #unify path slashes
         self.resultpath = tsvoutput.replace("/","\\") 
